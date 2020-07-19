@@ -1,0 +1,8 @@
+[package]
+name = "rlm2c"
+version = "0.1.0"
+authors = ["Joe Kaushal <joe.kaushal@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+vigem = "0.9.1"
