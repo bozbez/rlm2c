@@ -1,8 +1,11 @@
 [package]
 name = "rlm2c"
+description = "KBM -> Controller for Rocket League"
 version = "0.1.0"
 authors = ["Joe Kaushal <joe.kaushal@gmail.com>"]
 edition = "2018"
+repository = "https://github.com/bozbez/rlm2c"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 vigem = "0.9.1"
