@@ -1,0 +1,49 @@
+Config(
+    event_dispatcher: (
+        toggle_key: Grave,
+    ),
+
+    event_handler: (
+        sensitivity: 0.75,
+
+        sample_window: (secs: 0, nanos: 4500000),
+        dodge_lock_duration: (secs: 0, nanos: 24000000),
+
+        oversteer_alert_enabled: true,
+        oversteer_alert_threshold: 1.5,
+        oversteer_alert: (volume: 0.1, frequency: 880),
+
+        binds: {
+            Mouse(Left): LeftShoulder,
+            Mouse(Right): RightShoulder,
+
+            Mouse(Middle): LeftThumb,
+
+            Keyboard(W): RightTrigger,
+            Keyboard(S): LeftTrigger,
+
+            Keyboard(A): A,
+            Keyboard(D): X,
+
+            Keyboard(R): RightThumb,
+
+            Keyboard(Space): B,
+            Keyboard(LeftShift): Y,
+
+            Keyboard(Num1): DpadDown,
+            Keyboard(Num2): DpadLeft,
+            Keyboard(Num3): DpadRight,
+            Keyboard(Num4): DpadUp,
+        },
+
+        dodge_binds: {
+            Jump: Mouse(Left),
+
+            Forwards: Keyboard(W),
+            Backwards: Keyboard(S),
+
+            Left: Keyboard(A),
+            Right: Keyboard(D),
+        }
+    )
+)

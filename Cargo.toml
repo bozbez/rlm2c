@@ -6,3 +6,14 @@ edition = "2018"
 
 [dependencies]
 vigem = "0.9.1"
+interception = "0.1.2"
+cpal = "0.12.1"
+
+anyhow = "1.0.32"
+bitflags = "1.2.1"
+
+serde = { version = "1.0.114", features = ["derive"] }
+ron = "0.6.0"
+
+log = "0.4.11"
+env_logger = "0.7.1"
