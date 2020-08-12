@@ -3,7 +3,7 @@ use crate::types::*;
 use interception as ic;
 use serde::{Deserialize, Serialize};
 
-use std::convert::TryFrom;
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 #[derive(Serialize, Deserialize)]
@@ -27,7 +27,9 @@ pub struct EventDispatcher {
     interception: ic::Interception,
 
     active: bool,
-    key_states: [KeyState; 128],
+
+    key_states: HashMap<(ic::Device, ic::ScanCode), KeyState>,
+    mouse_button_states: HashMap<(ic::Device, MouseButton), KeyState>,
 }
 
 impl EventDispatcher {
@@ -59,7 +61,9 @@ impl EventDispatcher {
             interception: interception,
 
             active: false,
-            key_states: [KeyState::Up; 128],
+
+            key_states: HashMap::new(),
+            mouse_button_states: HashMap::new(),
         })
     }
 
@@ -77,7 +81,7 @@ impl EventDispatcher {
             let num_strokes = num_strokes as usize;
 
             for i in 0..num_strokes {
-                let send = self.process_stroke(strokes[i]);
+                let send = self.process_stroke(device, strokes[i]);
                 if send {
                     self.interception.send(device, &strokes[i..i + 1]);
                 }
@@ -85,13 +89,13 @@ impl EventDispatcher {
         }
     }
 
-    fn process_stroke(&mut self, stroke: ic::Stroke) -> bool {
+    fn process_stroke(&mut self, device: ic::Device, stroke: ic::Stroke) -> bool {
         match stroke {
             ic::Stroke::Keyboard {
                 code,
                 state,
                 information: _,
-            } => self.process_key(code, state.into()),
+            } => self.process_key(device, code, state.into()),
 
             ic::Stroke::Mouse {
                 state,
@@ -101,12 +105,10 @@ impl EventDispatcher {
                 y,
                 information: _,
             } => {
+                self.process_mouse_state(device, state);
+
                 if !self.active {
                     return true;
-                }
-
-                if state != ic::MouseState::empty() {
-                    self.process_mouse_state(state);
                 }
 
                 if x != 0 || y != 0 {
@@ -126,49 +128,51 @@ impl EventDispatcher {
             return;
         }
 
-        let mut strokes = Vec::new();
-
-        for (index, &state) in self.key_states.iter().enumerate() {
+        for (&(device, code), &state) in self.key_states.iter() {
             if state == KeyState::Up {
                 continue;
             }
 
-            let code = match ic::ScanCode::try_from(index as u16) {
-                Ok(code) => code,
-                Err(_) => continue,
-            };
-
-            strokes.push(ic::Stroke::Keyboard {
+            let stroke = [ic::Stroke::Keyboard {
                 code: code,
                 state: ic::KeyState::UP,
                 information: 0,
-            });
+            }];
+
+            self.interception.send(device, &stroke);
         }
 
-        self.interception.send(1, &strokes);
+        for (&(device, button), &state) in self.mouse_button_states.iter() {
+            if state == KeyState::Up {
+                continue;
+            }
 
-        let stroke = [ic::Stroke::Mouse {
-            state: ic::MouseState::LEFT_BUTTON_UP
-                | ic::MouseState::RIGHT_BUTTON_UP
-                | ic::MouseState::MIDDLE_BUTTON_UP
-                | ic::MouseState::BUTTON_4_UP
-                | ic::MouseState::BUTTON_5_UP,
-            flags: ic::MouseFlags::empty(),
-            rolling: 0,
-            x: 0,
-            y: 0,
-            information: 0,
-        }];
+            let button_flag = match button {
+                MouseButton::Left => ic::MouseState::LEFT_BUTTON_UP,
+                MouseButton::Right => ic::MouseState::RIGHT_BUTTON_UP,
+                MouseButton::Middle => ic::MouseState::MIDDLE_BUTTON_UP,
+                MouseButton::Button4 => ic::MouseState::BUTTON_4_UP,
+                MouseButton::Button5 => ic::MouseState::BUTTON_5_UP,
+            };
 
-        self.interception.send(11, &stroke);
+            let stroke = [ic::Stroke::Mouse {
+                state: button_flag,
+                flags: ic::MouseFlags::empty(),
+                rolling: 0,
+                x: 0,
+                y: 0,
+                information: 0,
+            }];
+
+            self.interception.send(device, &stroke);
+        }
     }
 
-    fn process_key(&mut self, code: ic::ScanCode, state: KeyState) -> bool {
-        let mut changed_state = false;
-        if state != self.key_states[code as usize] {
-            self.key_states[code as usize] = state;
-            changed_state = true;
-        }
+    fn process_key(&mut self, device: ic::Device, code: ic::ScanCode, state: KeyState) -> bool {
+        let changed_state = match self.key_states.insert((device, code), state) {
+            Some(old_state) => state != old_state,
+            None => true,
+        };
 
         if code == self.config.toggle_key {
             if changed_state && state == KeyState::Down {
@@ -189,7 +193,7 @@ impl EventDispatcher {
         }
     }
 
-    fn process_mouse_state(&mut self, state: ic::MouseState) {
+    fn process_mouse_state(&mut self, device: ic::Device, state: ic::MouseState) {
         let table = [
             (
                 ic::MouseState::LEFT_BUTTON_DOWN,
@@ -218,19 +222,22 @@ impl EventDispatcher {
             ),
         ];
 
-        for (flag_down, flag_up, button) in table.iter() {
-            if state.contains(*flag_down) && state.contains(*flag_up) {
+        for &(flag_down, flag_up, button) in table.iter() {
+            if (state.contains(flag_down) && state.contains(flag_up))
+                || !state.intersects(flag_down | flag_up)
+            {
                 continue;
             }
 
-            if state.contains(*flag_down) {
-                self.tx
-                    .send(Event::MouseButton(*button, KeyState::Down))
-                    .unwrap();
-            } else if state.contains(*flag_up) {
-                self.tx
-                    .send(Event::MouseButton(*button, KeyState::Up))
-                    .unwrap();
+            let key_state = match state.contains(flag_down) {
+                true => KeyState::Down,
+                false => KeyState::Up,
+            };
+
+            self.mouse_button_states.insert((device, button), key_state);
+
+            if self.active {
+                self.tx.send(Event::MouseButton(button, key_state)).unwrap();
             }
         }
     }
