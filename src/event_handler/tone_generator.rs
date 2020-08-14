@@ -23,10 +23,8 @@ impl Default for Config {
 }
 
 pub struct ToneGenerator {
-    /*
-    device: Device,
-    stream: Stream,
-    */
+    _device: Device,
+    _stream: Stream,
 
     active: Arc<AtomicBool>,
 }
@@ -42,7 +40,7 @@ impl ToneGenerator {
 
         match device.name() {
             Ok(name) => info!("using: {}", name),
-            Err(error) => error!("unable to get audio device name: {}", error)
+            Err(error) => error!("unable to get audio device name: {}", error),
         }
 
         debug!("{:?}", stream_config);
@@ -70,11 +68,9 @@ impl ToneGenerator {
             SampleFormat::F32 => {
                 Self::init_stream::<f32, _>(&device, &stream_config.into(), next_sample)?
             }
-
             SampleFormat::I16 => {
                 Self::init_stream::<i16, _>(&device, &stream_config.into(), next_sample)?
             }
-
             SampleFormat::U16 => {
                 Self::init_stream::<u16, _>(&device, &stream_config.into(), next_sample)?
             }
@@ -83,10 +79,8 @@ impl ToneGenerator {
         stream.play()?;
 
         Ok(ToneGenerator {
-            /*
-            device: device,
-            stream: stream,
-            */
+            _device: device,
+            _stream: stream,
 
             active: active,
         })
