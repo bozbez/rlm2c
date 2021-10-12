@@ -1,7 +1,7 @@
 [package]
 name = "rlm2c"
 description = "KBM -> Controller for Rocket League"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Joe Kaushal <joe.kaushal@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/bozbez/rlm2c"
@@ -16,6 +16,7 @@ anyhow = "1.0.32"
 bitflags = "1.2.1"
 
 serde = { version = "1.0.114", features = ["derive"] }
+clap = "3.0.0-beta.2"
 ron = "0.6.0"
 
 log = "0.4.11"

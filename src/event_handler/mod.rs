@@ -28,6 +28,12 @@ pub enum DodgeAction {
     Right,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum ControllerAction {
+    Button(ControllerButton),
+    Analog(f64, f64),
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -40,7 +46,7 @@ pub struct Config {
     oversteer_alert_threshold: f64,
     oversteer_alert: tone_generator::Config,
 
-    binds: HashMap<Bind, ControllerButton>,
+    binds: HashMap<Bind, ControllerAction>,
     dodge_binds: HashMap<DodgeAction, Bind>,
 }
 
@@ -76,7 +82,7 @@ pub struct EventHandler {
     mouse_samples: VecDeque<(i32, i32, Instant)>,
 
     analog_locked: bool,
-    analog_lock_start: Instant,
+    analog_lock_end: Instant,
 
     iteration_count: i32,
     iteration_total: Duration,
@@ -119,7 +125,7 @@ impl EventHandler {
             mouse_samples: VecDeque::new(),
 
             analog_locked: false,
-            analog_lock_start: Instant::now(),
+            analog_lock_end: Instant::now(),
 
             iteration_count: 0,
             iteration_total: Duration::from_secs(0),
@@ -178,7 +184,19 @@ impl EventHandler {
 
     fn handle_bind(&mut self, bind: Bind, state: KeyState) {
         let controller_button = match self.config.binds.get(&bind) {
-            Some(controller_button) => controller_button,
+            Some(ControllerAction::Button(controller_button)) => controller_button,
+            Some(ControllerAction::Analog(x, y)) => {
+                if state == KeyState::Up {
+                    self.analog_locked = false;
+                    return
+                }
+
+                self.analog_locked = true;
+                self.analog_lock_end = Instant::now() + Duration::from_secs(1_000_000);
+
+                self.set_analog(*x, *y);
+                return;
+            },
             None => return,
         };
 
@@ -216,7 +234,7 @@ impl EventHandler {
 
     fn handle_jump(&mut self) {
         self.analog_locked = true;
-        self.analog_lock_start = Instant::now();
+        self.analog_lock_end = Instant::now() + self.config.dodge_lock_duration;
 
         let mut analog = [0.0, 0.0];
 
@@ -243,8 +261,8 @@ impl EventHandler {
         };
 
         let button = match self.config.binds.get(&bind) {
-            Some(button) => button,
-            None => return false,
+            Some(ControllerAction::Button(button)) => button,
+            _ => return false,
         };
 
         match *button {
@@ -278,7 +296,7 @@ impl EventHandler {
             }
         }
 
-        if !self.analog_locked || now - self.analog_lock_start > self.config.dodge_lock_duration {
+        if !self.analog_locked || now > self.analog_lock_end {
             self.analog_locked = false;
 
             // let window = self.config.sample_window.as_secs_f64();

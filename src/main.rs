@@ -8,12 +8,20 @@ mod types;
 use event_dispatcher::EventDispatcher;
 use event_handler::EventHandler;
 
+use clap::Clap;
 use serde::{Deserialize, Serialize};
 
 use std::fs::File;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
+
+#[derive(Clap)]
+#[clap(version = "0.1.1", author = "Joe K. <joe.kaushal@gmail.com>")]
+struct Opts {
+    #[clap(short, long, default_value = "config.ron")]
+    config: String,
+}
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -44,12 +52,14 @@ fn main() {
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
-    info!("rlm2c 0.1.0 - github.com/bozbez/rlm2c");
+    info!("rlm2c 0.1.1 - github.com/bozbez/rlm2c");
+
+    let opts: Opts = Opts::parse();
 
     let Config {
         event_dispatcher: event_dispatcher_config,
         event_handler: event_handler_config,
-    } = load_config("config.ron");
+    } = load_config(opts.config);
 
     let (tx, rx) = mpsc::channel();
 
@@ -57,8 +67,8 @@ fn main() {
         match EventHandler::new(rx, event_handler_config) {
             Ok(mut event_handler) => match event_handler.run() {
                 Ok(()) => {}
-                Err(error) => error!("could not run event handler: {}", error)
-            }
+                Err(error) => error!("could not run event handler: {}", error),
+            },
 
             Err(error) => error!("could not create event handler: {}", error),
         };

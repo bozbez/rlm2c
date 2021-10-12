@@ -129,7 +129,7 @@ impl EventDispatcher {
         }
 
         for (&(device, code), &state) in self.key_states.iter() {
-            if state == KeyState::Up {
+            if code == self.config.toggle_key || state == KeyState::Up {
                 continue;
             }
 
