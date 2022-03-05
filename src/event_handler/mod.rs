@@ -55,6 +55,7 @@ pub struct Config {
     oversteer_alert: tone_generator::Config,
 
     limit_step: f64,
+    analog_mask: (bool, bool),
 
     binds: HashMap<Bind, ControllerAction>,
     dodge_binds: HashMap<DodgeAction, Bind>,
@@ -74,6 +75,7 @@ impl Default for Config {
             oversteer_alert: tone_generator::Config::default(),
 
             limit_step: 0.1,
+            analog_mask: (true, true),
 
             binds: HashMap::new(),
             dodge_binds: HashMap::new(),
@@ -390,12 +392,20 @@ impl EventHandler {
                 mouse_vel.1 += y as f64;
             }
 
+            // TODO: proper analog binds
+            if !self.config.analog_mask.0 {
+                mouse_vel.0 = 0.0;
+            }
+
+            if !self.config.analog_mask.1 {
+                mouse_vel.1 = 0.0;
+            }
+
             let multiplier =
                 self.config.sensitivity / (1e4 * self.config.sample_window.as_secs_f64());
 
             self.set_analog(
                 mouse_vel.0 as f64 * multiplier,
-                // 0.0,
                 -mouse_vel.1 as f64 * multiplier,
             );
         } else {
