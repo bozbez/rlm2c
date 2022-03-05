@@ -9,7 +9,7 @@ use vigem::*;
 use serde::{Deserialize, Serialize};
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::spin_loop_hint;
+use std::hint::spin_loop;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -26,6 +26,14 @@ pub enum DodgeAction {
     Backwards,
     Left,
     Right,
+}
+
+#[derive(Serialize, Deserialize, Hash, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitAction {
+    Reset,
+    Toggle,
+    Increment,
+    Decrement,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -46,8 +54,11 @@ pub struct Config {
     oversteer_alert_threshold: f64,
     oversteer_alert: tone_generator::Config,
 
+    limit_step: f64,
+
     binds: HashMap<Bind, ControllerAction>,
     dodge_binds: HashMap<DodgeAction, Bind>,
+    limit_binds: HashMap<Bind, LimitAction>,
 }
 
 impl Default for Config {
@@ -62,8 +73,11 @@ impl Default for Config {
             oversteer_alert_threshold: 1.5,
             oversteer_alert: tone_generator::Config::default(),
 
+            limit_step: 0.1,
+
             binds: HashMap::new(),
             dodge_binds: HashMap::new(),
+            limit_binds: HashMap::new(),
         }
     }
 }
@@ -84,13 +98,19 @@ pub struct EventHandler {
     analog_locked: bool,
     analog_lock_end: Instant,
 
+    analog_lock_x: f64,
+    analog_lock_y: f64,
+
+    analog_limited: bool,
+    analog_limit: f64,
+
     iteration_count: i32,
     iteration_total: Duration,
     iteration_window_start: Instant,
 }
 
 impl EventHandler {
-    const ANALOG_MAX: f64 = i16::MAX as f64;
+    const ANALOG_MAX: f64 = -(i16::MIN as f64);
 
     pub fn new(rx: mpsc::Receiver<Event>, config: Config) -> Result<Self, anyhow::Error> {
         let mut vigem = Vigem::new();
@@ -127,6 +147,12 @@ impl EventHandler {
             analog_locked: false,
             analog_lock_end: Instant::now(),
 
+            analog_lock_x: 0.0,
+            analog_lock_y: 0.0,
+
+            analog_limited: false,
+            analog_limit: 1.0,
+
             iteration_count: 0,
             iteration_total: Duration::from_secs(0),
             iteration_window_start: Instant::now(),
@@ -139,7 +165,7 @@ impl EventHandler {
 
             let mut event = self.rx.try_recv();
             while event.is_err() && iteration_start.elapsed() < Duration::from_micros(2000) {
-                spin_loop_hint();
+                spin_loop();
                 event = self.rx.try_recv();
             }
 
@@ -183,20 +209,34 @@ impl EventHandler {
     }
 
     fn handle_bind(&mut self, bind: Bind, state: KeyState) {
+        if state == KeyState::Down {
+            match self.config.limit_binds.get(&bind) {
+                Some(action) => {
+                    let action = *action;
+                    self.limit_action_pressed(action);
+                }
+
+                None => (),
+            };
+        }
+
         let controller_button = match self.config.binds.get(&bind) {
             Some(ControllerAction::Button(controller_button)) => controller_button,
             Some(ControllerAction::Analog(x, y)) => {
                 if state == KeyState::Up {
                     self.analog_locked = false;
-                    return
+                    return;
                 }
 
                 self.analog_locked = true;
                 self.analog_lock_end = Instant::now() + Duration::from_secs(1_000_000);
 
-                self.set_analog(*x, *y);
+                self.analog_lock_x = *x;
+                self.analog_lock_y = *y;
+
+                self.set_analog(self.analog_lock_x, self.analog_lock_y);
                 return;
-            },
+            }
             None => return,
         };
 
@@ -251,7 +291,35 @@ impl EventHandler {
             }
         }
 
-        self.set_analog(analog[0], analog[1]);
+        self.analog_lock_x = analog[0];
+        self.analog_lock_y = analog[1];
+
+        self.set_analog(self.analog_lock_x, self.analog_lock_y);
+    }
+
+    fn limit_action_pressed(&mut self, action: LimitAction) {
+        match action {
+            LimitAction::Reset => {
+                self.analog_limited = false;
+                info!("---- LIMIT RESET");
+            }
+            LimitAction::Toggle => {
+                self.analog_limited = !self.analog_limited;
+                if self.analog_limited {
+                    info!("!!!! LIMIT ON");
+                } else {
+                    info!(".... LIMIT OFF");
+                }
+            }
+            LimitAction::Increment => {
+                self.analog_limit = (self.analog_limit + self.config.limit_step).min(1.0);
+                info!("analog_limit: {:.2}", self.analog_limit);
+            }
+            LimitAction::Decrement => {
+                self.analog_limit = (self.analog_limit - self.config.limit_step).max(0.0);
+                info!("analog_limit: {:.2}", self.analog_limit);
+            }
+        }
     }
 
     fn dodge_action_pressed(&self, action: DodgeAction) -> bool {
@@ -327,8 +395,11 @@ impl EventHandler {
 
             self.set_analog(
                 mouse_vel.0 as f64 * multiplier,
+                // 0.0,
                 -mouse_vel.1 as f64 * multiplier,
             );
+        } else {
+            self.set_analog(self.analog_lock_x, self.analog_lock_y);
         }
     }
 
@@ -336,21 +407,16 @@ impl EventHandler {
         let alert = x.abs().max(y.abs()) >= self.config.oversteer_alert_threshold;
         self.tone_generator.as_mut().map(|tg| tg.enable(alert));
 
-        if x.abs() <= 1.0 && y.abs() <= 1.0 {
-            self.report.s_thumb_lx = (x * Self::ANALOG_MAX) as i16;
-            self.report.s_thumb_ly = (y * Self::ANALOG_MAX) as i16;
-
-            return;
-        }
-
-        let overshoot = x.abs().max(y.abs());
+        let radius_limit = if self.analog_limited {
+            self.analog_limit
+        } else {
+            1.0
+        };
 
         let angle = y.atan2(x);
-        let radius = (x.powi(2) + y.powi(2)).sqrt();
+        let radius = (x.powi(2) + y.powi(2)).sqrt().min(radius_limit);
 
-        let new_radius = radius / overshoot;
-
-        self.report.s_thumb_lx = (angle.cos() * new_radius * Self::ANALOG_MAX) as i16;
-        self.report.s_thumb_ly = (angle.sin() * new_radius * Self::ANALOG_MAX) as i16;
+        self.report.s_thumb_lx = (angle.cos() * radius * Self::ANALOG_MAX) as i16;
+        self.report.s_thumb_ly = (angle.sin() * radius * Self::ANALOG_MAX) as i16;
     }
 }
