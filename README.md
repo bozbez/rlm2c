@@ -8,6 +8,11 @@ This is built using oblitum's [Interception](http://www.oblita.com/interception)
 
 **WARNING 2: If you are not in posession of moderate computer literacy skills you will most likely fail. This software is provided as-is, please _do not_ message me if you do not know what to do or are unable to get this working.**
 
+<br/>
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=wAPVb9FSmHE"><img src="https://raw.githubusercontent.com/bozbez/rlm2c/master/media/embed.png"></a>
+</div>
+
 # Installation and Usage
 
 1. Head over to the [Releases](https://github.com/bozbez/rlm2c/releases) page, then download and extract the latest archive.
