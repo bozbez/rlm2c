@@ -50,6 +50,8 @@ pub struct Config {
     sample_window: Duration,
     dodge_lock_duration: Duration,
 
+    spin_period: Duration,
+
     oversteer_alert_enabled: bool,
     oversteer_alert_threshold: f64,
     oversteer_alert: tone_generator::Config,
@@ -69,6 +71,8 @@ impl Default for Config {
 
             sample_window: Duration::from_millis(20),
             dodge_lock_duration: Duration::from_millis(50),
+
+            spin_period: Duration::from_millis(2),
 
             oversteer_alert_enabled: false,
             oversteer_alert_threshold: 1.5,
@@ -96,6 +100,7 @@ pub struct EventHandler {
     tone_generator: Option<ToneGenerator>,
 
     mouse_samples: VecDeque<(i32, i32, Instant)>,
+    mouse_button_states: (KeyState, KeyState),
 
     analog_locked: bool,
     analog_lock_end: Instant,
@@ -142,6 +147,7 @@ impl EventHandler {
             tone_generator: tone_generator,
 
             mouse_samples: VecDeque::new(),
+            mouse_button_states: (KeyState::Up, KeyState::Up),
 
             analog_locked: false,
             analog_lock_end: Instant::now(),
@@ -160,7 +166,7 @@ impl EventHandler {
             let iteration_start = Instant::now();
 
             let mut event = self.rx.try_recv();
-            while event.is_err() && iteration_start.elapsed() < Duration::from_micros(2000) {
+            while event.is_err() && iteration_start.elapsed() < self.config.spin_period {
                 spin_loop();
                 event = self.rx.try_recv();
             }
@@ -195,7 +201,10 @@ impl EventHandler {
                         self.handle_bind(Bind::Keyboard(scancode), state)
                     }
 
-                    Event::Reset => self.report = XUSBReport::default(),
+                    Event::Reset => {
+                        self.mouse_button_states = (KeyState::Up, KeyState::Up);
+                        self.report = XUSBReport::default();
+                    }
                 }
             }
 
@@ -300,6 +309,31 @@ impl EventHandler {
         self.set_analog(self.analog_lock_x, self.analog_lock_y);
     }
 
+    fn dodge_action_pressed(&self, action: DodgeAction) -> bool {
+        let bind = match self.config.dodge_binds.get(&action) {
+            Some(bind) => bind,
+            None => return false,
+        };
+
+        let button = match self.config.binds.get(&bind) {
+            Some(ControllerAction::Button(button)) => button,
+            _ => return false,
+        };
+
+        match *button {
+            ControllerButton::LeftTrigger => return self.report.b_left_trigger > 0,
+            ControllerButton::RightTrigger => return self.report.b_right_trigger > 0,
+            button => {
+                let button_flag = XButton::from_bits(button as u16).unwrap();
+                return self.report.w_buttons.contains(button_flag);
+            }
+        }
+    }
+
+    fn handle_mouse_move(&mut self, x: i32, y: i32) {
+        let now = Instant::now();
+        self.mouse_samples.push_back((x, y, now));
+    }
 
     fn update_analog(&mut self) {
         let now = Instant::now();

@@ -1,23 +1,23 @@
 [package]
 name = "rlm2c"
-description = "KBM -> Controller for Rocket League"
-version = "0.1.1"
+description = "Mouse (and keyboard) to controller emulator"
+version = "0.1.2"
 authors = ["Joe Kaushal <joe.kaushal@gmail.com>"]
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/bozbez/rlm2c"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
 vigem = "0.9.1"
 interception = "0.1.2"
-cpal = "0.12.1"
+cpal = "0.13.5"
 
-anyhow = "1.0.32"
-bitflags = "1.2.1"
+anyhow = "1.0.57"
+bitflags = "1.3.2"
 
-serde = { version = "1.0.114", features = ["derive"] }
-clap = "3.0.0-beta.2"
-ron = "0.6.0"
+serde = { version = "1.0.137", features = ["derive"] }
+clap = { version = "3.1.14", features = ["derive"] }
+ron = "0.7.0"
 
-log = "0.4.11"
-env_logger = "0.7.1"
+log = "0.4.16"
+env_logger = "0.9.0"

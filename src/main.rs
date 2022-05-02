@@ -8,7 +8,7 @@ mod types;
 use event_dispatcher::EventDispatcher;
 use event_handler::EventHandler;
 
-use clap::Clap;
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 use std::fs::File;
@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
-#[derive(Clap)]
+#[derive(Parser, Debug)]
 #[clap(version = "0.1.1", author = "Joe K. <joe.kaushal@gmail.com>")]
 struct Opts {
     #[clap(short, long, default_value = "config.ron")]
