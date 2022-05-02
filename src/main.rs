@@ -17,7 +17,7 @@ use std::sync::mpsc;
 use std::thread;
 
 #[derive(Parser, Debug)]
-#[clap(version = "0.1.1", author = "Joe K. <joe.kaushal@gmail.com>")]
+#[clap(version = "0.1.2", author = "Joe K. <joe.kaushal@gmail.com>")]
 struct Opts {
     #[clap(short, long, default_value = "config.ron")]
     config: String,
@@ -52,7 +52,7 @@ fn main() {
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
-    info!("rlm2c 0.1.1 - github.com/bozbez/rlm2c");
+    info!("rlm2c 0.1.2 - github.com/bozbez/rlm2c");
 
     let opts: Opts = Opts::parse();
 
