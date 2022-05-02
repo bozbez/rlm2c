@@ -54,12 +54,12 @@ pub struct Config {
     oversteer_alert_threshold: f64,
     oversteer_alert: tone_generator::Config,
 
-    limit_step: f64,
     analog_mask: (bool, bool),
+    analog_circularize: bool,
+    mouse_button_fix: bool,
 
     binds: HashMap<Bind, ControllerAction>,
     dodge_binds: HashMap<DodgeAction, Bind>,
-    limit_binds: HashMap<Bind, LimitAction>,
 }
 
 impl Default for Config {
@@ -74,12 +74,12 @@ impl Default for Config {
             oversteer_alert_threshold: 1.5,
             oversteer_alert: tone_generator::Config::default(),
 
-            limit_step: 0.1,
             analog_mask: (true, true),
+            analog_circularize: true,
+            mouse_button_fix: false,
 
             binds: HashMap::new(),
             dodge_binds: HashMap::new(),
-            limit_binds: HashMap::new(),
         }
     }
 }
@@ -102,9 +102,6 @@ pub struct EventHandler {
 
     analog_lock_x: f64,
     analog_lock_y: f64,
-
-    analog_limited: bool,
-    analog_limit: f64,
 
     iteration_count: i32,
     iteration_total: Duration,
@@ -152,9 +149,6 @@ impl EventHandler {
             analog_lock_x: 0.0,
             analog_lock_y: 0.0,
 
-            analog_limited: false,
-            analog_limit: 1.0,
-
             iteration_count: 0,
             iteration_total: Duration::from_secs(0),
             iteration_window_start: Instant::now(),
@@ -176,7 +170,25 @@ impl EventHandler {
                     Event::MouseMove(x, y) => self.handle_mouse_move(x, y),
 
                     Event::MouseButton(button, state) => {
-                        self.handle_bind(Bind::Mouse(button), state)
+                        if button == MouseButton::Left {
+                            self.mouse_button_states.0 = state;
+                        }
+
+                        if button == MouseButton::Right {
+                            self.mouse_button_states.1 = state;
+                        }
+
+                        self.handle_bind(Bind::Mouse(button), state);
+
+                        if self.config.mouse_button_fix && state == KeyState::Up {
+                            if self.mouse_button_states.0 == KeyState::Down {
+                                self.handle_bind(Bind::Mouse(MouseButton::Left), KeyState::Down)
+                            }
+
+                            if self.mouse_button_states.1 == KeyState::Down {
+                                self.handle_bind(Bind::Mouse(MouseButton::Right), KeyState::Down)
+                            }
+                        }
                     }
 
                     Event::Keyboard(scancode, state) => {
@@ -211,17 +223,6 @@ impl EventHandler {
     }
 
     fn handle_bind(&mut self, bind: Bind, state: KeyState) {
-        if state == KeyState::Down {
-            match self.config.limit_binds.get(&bind) {
-                Some(action) => {
-                    let action = *action;
-                    self.limit_action_pressed(action);
-                }
-
-                None => (),
-            };
-        }
-
         let controller_button = match self.config.binds.get(&bind) {
             Some(ControllerAction::Button(controller_button)) => controller_button,
             Some(ControllerAction::Analog(x, y)) => {
@@ -299,56 +300,6 @@ impl EventHandler {
         self.set_analog(self.analog_lock_x, self.analog_lock_y);
     }
 
-    fn limit_action_pressed(&mut self, action: LimitAction) {
-        match action {
-            LimitAction::Reset => {
-                self.analog_limited = false;
-                info!("---- LIMIT RESET");
-            }
-            LimitAction::Toggle => {
-                self.analog_limited = !self.analog_limited;
-                if self.analog_limited {
-                    info!("!!!! LIMIT ON");
-                } else {
-                    info!(".... LIMIT OFF");
-                }
-            }
-            LimitAction::Increment => {
-                self.analog_limit = (self.analog_limit + self.config.limit_step).min(1.0);
-                info!("analog_limit: {:.2}", self.analog_limit);
-            }
-            LimitAction::Decrement => {
-                self.analog_limit = (self.analog_limit - self.config.limit_step).max(0.0);
-                info!("analog_limit: {:.2}", self.analog_limit);
-            }
-        }
-    }
-
-    fn dodge_action_pressed(&self, action: DodgeAction) -> bool {
-        let bind = match self.config.dodge_binds.get(&action) {
-            Some(bind) => bind,
-            None => return false,
-        };
-
-        let button = match self.config.binds.get(&bind) {
-            Some(ControllerAction::Button(button)) => button,
-            _ => return false,
-        };
-
-        match *button {
-            ControllerButton::LeftTrigger => return self.report.b_left_trigger > 0,
-            ControllerButton::RightTrigger => return self.report.b_right_trigger > 0,
-            button => {
-                let button_flag = XButton::from_bits(button as u16).unwrap();
-                return self.report.w_buttons.contains(button_flag);
-            }
-        }
-    }
-
-    fn handle_mouse_move(&mut self, x: i32, y: i32) {
-        let now = Instant::now();
-        self.mouse_samples.push_back((x, y, now));
-    }
 
     fn update_analog(&mut self) {
         let now = Instant::now();
@@ -417,16 +368,37 @@ impl EventHandler {
         let alert = x.abs().max(y.abs()) >= self.config.oversteer_alert_threshold;
         self.tone_generator.as_mut().map(|tg| tg.enable(alert));
 
-        let radius_limit = if self.analog_limited {
-            self.analog_limit
+        if self.config.analog_circularize {
+            self.set_analog_circularized(x, y);
         } else {
-            1.0
-        };
+            self.set_analog_linear(x, y);
+        }
+    }
 
+    fn set_analog_circularized(&mut self, x: f64, y: f64) {
         let angle = y.atan2(x);
-        let radius = (x.powi(2) + y.powi(2)).sqrt().min(radius_limit);
+        let radius = (x.powi(2) + y.powi(2)).sqrt();
 
         self.report.s_thumb_lx = (angle.cos() * radius * Self::ANALOG_MAX) as i16;
         self.report.s_thumb_ly = (angle.sin() * radius * Self::ANALOG_MAX) as i16;
+    }
+
+    fn set_analog_linear(&mut self, x: f64, y: f64) {
+        if x.abs() <= 1.0 && y.abs() <= 1.0 {
+            self.report.s_thumb_lx = (x * Self::ANALOG_MAX) as i16;
+            self.report.s_thumb_ly = (y * Self::ANALOG_MAX) as i16;
+
+            return;
+        }
+
+        let overshoot = x.abs().max(y.abs());
+
+        let angle = y.atan2(x);
+        let radius = (x.powi(2) + y.powi(2)).sqrt();
+
+        let new_radius = radius / overshoot;
+
+        self.report.s_thumb_lx = (angle.cos() * new_radius * Self::ANALOG_MAX) as i16;
+        self.report.s_thumb_ly = (angle.sin() * new_radius * Self::ANALOG_MAX) as i16;
     }
 }
